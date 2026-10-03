@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -42,6 +41,7 @@ const themes: Record<string, ThemeConfig> = {
     accent: "#84cc16",
     glow: "rgba(163, 230, 53, 0.18)",
   },
+
   neon: {
     face: "#07140c",
     faceSecondary: "#0b1f12",
@@ -55,6 +55,7 @@ const themes: Record<string, ThemeConfig> = {
     accent: "#a3e635",
     glow: "rgba(74, 222, 128, 0.25)",
   },
+
   red: {
     face: "#190708",
     faceSecondary: "#280b0d",
@@ -68,6 +69,7 @@ const themes: Record<string, ThemeConfig> = {
     accent: "#ef4444",
     glow: "rgba(239, 68, 68, 0.25)",
   },
+
   cyber: {
     face: "#050b1c",
     faceSecondary: "#09142d",
@@ -81,6 +83,7 @@ const themes: Record<string, ThemeConfig> = {
     accent: "#22d3ee",
     glow: "rgba(34, 211, 238, 0.25)",
   },
+
   classic: {
     face: "#f1f5f9",
     faceSecondary: "#ffffff",
@@ -167,80 +170,115 @@ export default function SpiderClock({
   const digitalSeconds = String(time.seconds).padStart(2, "0");
 
   return (
-    <div className="relative flex items-center justify-center py-5 sm:py-8">
+    <div className="relative flex items-center justify-center py-8 sm:py-12">
+      {/* Ambient glow */}
       <div
-        className="absolute h-[350px] w-[350px] rounded-full blur-[70px] transition-all duration-700 sm:h-[500px] sm:w-[500px] sm:blur-[100px]"
-        style={{ backgroundColor: currentTheme.glow }}
-      />
-
-      <div
-        className="absolute h-[350px] w-[350px] rounded-full border transition-all duration-700 sm:h-[500px] sm:w-[500px]"
-        style={{ borderColor: `${currentTheme.border}12` }}
-      />
-
-      <div
-        className="absolute h-[370px] w-[370px] rounded-full border border-dashed transition-all duration-700 sm:h-[530px] sm:w-[530px]"
+        className="absolute h-[320px] w-[320px] rounded-full blur-[80px] transition-all duration-1000 sm:h-[520px] sm:w-[520px] sm:blur-[120px]"
         style={{
-          borderColor: `${currentTheme.border}08`,
-          animation: "spin 40s linear infinite",
+          backgroundColor: currentTheme.glow,
         }}
       />
 
+      {/* Outer energy ring */}
       <div
-        className="relative aspect-square w-[310px] rounded-full border-[6px] shadow-2xl transition-all duration-700 sm:w-[440px] sm:border-[8px]"
+        className="absolute h-[350px] w-[350px] rounded-full border transition-all duration-1000 sm:h-[540px] sm:w-[540px]"
+        style={{
+          borderColor: `${currentTheme.border}18`,
+          boxShadow: `0 0 80px ${currentTheme.glow}`,
+        }}
+      />
+
+      {/* Rotating outer ring */}
+      <div
+        className="absolute h-[370px] w-[370px] rounded-full border border-dashed transition-all duration-1000 sm:h-[570px] sm:w-[570px]"
+        style={{
+          borderColor: `${currentTheme.border}14`,
+          animation: "spider-clock-spin 35s linear infinite",
+        }}
+      />
+
+      {/* Second rotating ring */}
+      <div
+        className="absolute h-[390px] w-[390px] rounded-full border transition-all duration-1000 sm:h-[590px] sm:w-[590px]"
+        style={{
+          borderColor: `${currentTheme.border}08`,
+          animation: "spider-clock-spin-reverse 50s linear infinite",
+        }}
+      />
+
+      {/* Clock */}
+      <div
+        className="relative aspect-square w-[310px] rounded-full border-[6px] shadow-2xl transition-all duration-1000 sm:w-[450px] sm:border-[8px]"
         style={{
           backgroundColor: currentTheme.face,
           borderColor: currentTheme.border,
           boxShadow: `
-            0 0 35px ${currentTheme.glow},
-            0 0 90px ${currentTheme.glow},
-            inset 0 0 35px rgba(0,0,0,0.16)
+            0 0 25px ${currentTheme.glow},
+            0 0 70px ${currentTheme.glow},
+            0 0 120px ${currentTheme.glow},
+            inset 0 0 35px rgba(0,0,0,0.14)
           `,
         }}
       >
+        {/* Inner glass */}
         <div
-          className="absolute inset-[2.5%] rounded-full border transition-all duration-700"
+          className="absolute inset-[2.5%] rounded-full border"
           style={{
             backgroundColor: currentTheme.faceSecondary,
-            borderColor: `${currentTheme.border}55`,
+            borderColor: `${currentTheme.border}45`,
+            boxShadow: `inset 0 0 25px ${currentTheme.glow}`,
           }}
         />
 
+        {/* Spider web radial rings */}
         <div
-          className="absolute inset-[8%] rounded-full opacity-70"
+          className="absolute inset-[7%] rounded-full opacity-70"
           style={{
             backgroundImage: `
               repeating-radial-gradient(
                 circle at center,
                 transparent 0px,
-                transparent 19px,
-                ${currentTheme.web}24 20px,
-                ${currentTheme.web}24 21px,
-                transparent 22px
+                transparent 18px,
+                ${currentTheme.web}18 19px,
+                ${currentTheme.web}18 20px,
+                transparent 21px
               )
             `,
           }}
         />
 
-        <div className="absolute inset-[8%] overflow-hidden rounded-full">
+        {/* Web radial lines */}
+        <div className="absolute inset-[7%] overflow-hidden rounded-full">
           {Array.from({ length: 24 }).map((_, index) => (
             <div
               key={index}
               className="absolute left-1/2 top-1/2 h-px w-1/2 origin-left"
               style={{
                 backgroundColor: currentTheme.web,
-                opacity: index % 2 === 0 ? 0.28 : 0.14,
+                opacity: index % 3 === 0 ? 0.3 : 0.12,
                 transform: `rotate(${index * 15}deg)`,
               }}
             />
           ))}
         </div>
 
+        {/* Inner web ring */}
         <div
-          className="absolute inset-[5%] rounded-full border transition-all duration-700"
-          style={{ borderColor: `${currentTheme.border}22` }}
+          className="absolute inset-[11%] rounded-full border"
+          style={{
+            borderColor: `${currentTheme.web}20`,
+          }}
         />
 
+        {/* Decorative outer ring */}
+        <div
+          className="absolute inset-[5%] rounded-full border"
+          style={{
+            borderColor: `${currentTheme.border}25`,
+          }}
+        />
+
+        {/* Hour ticks */}
         <div className="absolute inset-0">
           {Array.from({ length: 60 }).map((_, index) => {
             const isHour = index % 5 === 0;
@@ -260,7 +298,10 @@ export default function SpiderClock({
                   className="h-full rounded-full"
                   style={{
                     backgroundColor: currentTheme.tick,
-                    opacity: isHour ? 0.85 : 0.3,
+                    opacity: isHour ? 0.9 : 0.25,
+                    boxShadow: isHour
+                      ? `0 0 5px ${currentTheme.glow}`
+                      : "none",
                   }}
                 />
               </div>
@@ -268,6 +309,7 @@ export default function SpiderClock({
           })}
         </div>
 
+        {/* Numbers */}
         {numbers.map((item) => {
           const radius = 38;
           const radians = (item.angle * Math.PI) / 180;
@@ -275,19 +317,23 @@ export default function SpiderClock({
           const x = 50 + radius * Math.sin(radians);
           const y = 50 - radius * Math.cos(radians);
 
-          const majorNumber = ["12", "3", "6", "9"].includes(item.number);
+          const majorNumber = ["12", "3", "6", "9"].includes(
+            item.number
+          );
 
           return (
             <div
               key={item.number}
               className={`absolute -translate-x-1/2 -translate-y-1/2 font-black ${
-                majorNumber ? "text-xl sm:text-2xl" : "text-sm sm:text-base"
+                majorNumber
+                  ? "text-xl sm:text-3xl"
+                  : "text-sm sm:text-base"
               }`}
               style={{
                 left: `${x}%`,
                 top: `${y}%`,
                 color: currentTheme.number,
-                textShadow: `0 0 10px ${currentTheme.glow}`,
+                textShadow: `0 0 12px ${currentTheme.glow}`,
               }}
             >
               {item.number}
@@ -295,23 +341,28 @@ export default function SpiderClock({
           );
         })}
 
+        {/* Digital display */}
         <div
-          className="absolute bottom-[20%] left-1/2 -translate-x-1/2 rounded-full border px-3 py-1 backdrop-blur-sm sm:px-4 sm:py-1.5"
+          className="absolute bottom-[18%] left-1/2 -translate-x-1/2 rounded-xl border px-3 py-1.5 backdrop-blur-md sm:px-5 sm:py-2"
           style={{
-            borderColor: `${currentTheme.border}25`,
-            backgroundColor: `${currentTheme.face}aa`,
+            borderColor: `${currentTheme.border}35`,
+            backgroundColor: `${currentTheme.face}cc`,
+            boxShadow: `0 0 15px ${currentTheme.glow}`,
           }}
         >
           <span
-            className="font-mono text-[9px] font-bold tracking-[0.2em] sm:text-[10px]"
-            style={{ color: currentTheme.number }}
+            className="font-mono text-[9px] font-bold tracking-[0.25em] sm:text-[11px]"
+            style={{
+              color: currentTheme.number,
+            }}
           >
             {digitalHours}:{digitalMinutes}:{digitalSeconds}
           </span>
         </div>
 
+        {/* Hour hand */}
         <div
-          className="absolute left-1/2 top-1/2 z-30 origin-bottom rounded-full transition-transform duration-500 ease-linear"
+          className="absolute left-1/2 top-1/2 z-30 origin-bottom rounded-full"
           style={{
             width: "9px",
             height: "21%",
@@ -320,17 +371,22 @@ export default function SpiderClock({
               translate(-50%, -100%)
               rotate(${hourAngle}deg)
             `,
-            boxShadow: `0 0 8px ${currentTheme.glow}`,
+            transition:
+              "transform 900ms cubic-bezier(0.22, 1, 0.36, 1)",
+            boxShadow: `0 0 10px ${currentTheme.glow}`,
           }}
         >
           <div
             className="absolute left-1/2 top-0 h-3 w-1 -translate-x-1/2 rounded-full"
-            style={{ backgroundColor: currentTheme.accent }}
+            style={{
+              backgroundColor: currentTheme.accent,
+            }}
           />
         </div>
 
+        {/* Minute hand */}
         <div
-          className="absolute left-1/2 top-1/2 z-30 origin-bottom rounded-full transition-transform duration-500 ease-linear"
+          className="absolute left-1/2 top-1/2 z-30 origin-bottom rounded-full"
           style={{
             width: "6px",
             height: "31%",
@@ -339,12 +395,15 @@ export default function SpiderClock({
               translate(-50%, -100%)
               rotate(${minuteAngle}deg)
             `,
-            boxShadow: `0 0 8px ${currentTheme.glow}`,
+            transition:
+              "transform 900ms cubic-bezier(0.22, 1, 0.36, 1)",
+            boxShadow: `0 0 10px ${currentTheme.glow}`,
           }}
         />
 
+        {/* Second hand */}
         <div
-          className="absolute left-1/2 top-1/2 z-40 origin-bottom transition-transform duration-500 ease-linear"
+          className="absolute left-1/2 top-1/2 z-40 origin-bottom"
           style={{
             width: "2px",
             height: "37%",
@@ -353,32 +412,49 @@ export default function SpiderClock({
               translate(-50%, -100%)
               rotate(${secondAngle}deg)
             `,
-            boxShadow: `0 0 10px ${currentTheme.secondHand}`,
+            transition:
+              "transform 850ms cubic-bezier(0.22, 1, 0.36, 1)",
+            boxShadow: `0 0 12px ${currentTheme.secondHand}`,
           }}
         >
           <div
             className="absolute -top-1 left-1/2 h-3 w-1 -translate-x-1/2 rounded-full"
-            style={{ backgroundColor: currentTheme.secondHand }}
+            style={{
+              backgroundColor: currentTheme.secondHand,
+            }}
           />
         </div>
 
+        {/* Center glow */}
         <div
-          className="absolute left-1/2 top-[37%] z-45 h-20 w-20 -translate-x-1/2 rounded-full blur-2xl"
-          style={{ backgroundColor: currentTheme.glow }}
+          className="absolute left-1/2 top-1/2 z-40 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full blur-2xl"
+          style={{
+            backgroundColor: currentTheme.glow,
+          }}
         />
 
-        {/* Floating spider */}
+        {/* Spider */}
         <div
           className="absolute left-1/2 top-[37%] z-50 -translate-x-1/2"
           style={{
             animation: "spider-float 3s ease-in-out infinite",
           }}
         >
-          {/* Animated spider thread */}
+          {/* Thread */}
           <div
-            className="spider-thread absolute bottom-full left-1/2 h-10 w-px -translate-x-1/2"
+            className="absolute bottom-full left-1/2 h-12 w-px -translate-x-1/2"
             style={{
               backgroundColor: currentTheme.spider,
+              opacity: 0.55,
+              boxShadow: `0 0 5px ${currentTheme.glow}`,
+            }}
+          />
+
+          {/* Spider shadow/glow */}
+          <div
+            className="absolute left-1/2 top-1/2 h-14 w-14 -translate-x-1/2 -translate-y-1/2 rounded-full blur-xl"
+            style={{
+              backgroundColor: currentTheme.glow,
             }}
           />
 
@@ -387,60 +463,81 @@ export default function SpiderClock({
             className="relative h-8 w-7 rounded-full"
             style={{
               backgroundColor: currentTheme.spider,
-              boxShadow: `0 0 15px ${currentTheme.glow}`,
+              boxShadow: `
+                0 0 8px ${currentTheme.glow},
+                0 0 16px ${currentTheme.glow}
+              `,
             }}
           >
-            {/* Spider head */}
+            {/* Head */}
             <div
               className="absolute -top-3 left-1/2 h-5 w-5 -translate-x-1/2 rounded-full"
-              style={{ backgroundColor: currentTheme.spider }}
+              style={{
+                backgroundColor: currentTheme.spider,
+              }}
             />
 
             {/* Eyes */}
-            <div className="absolute -top-1 left-[5px] h-1.5 w-1.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.9)]" />
+            <div className="absolute -top-1 left-[5px] h-1.5 w-1.5 rounded-full bg-red-500 shadow-[0_0_7px_rgba(239,68,68,0.95)]" />
 
-            <div className="absolute -top-1 right-[5px] h-1.5 w-1.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.9)]" />
+            <div className="absolute -top-1 right-[5px] h-1.5 w-1.5 rounded-full bg-red-500 shadow-[0_0_7px_rgba(239,68,68,0.95)]" />
 
             {/* Left legs */}
             <div
               className="absolute left-[-18px] top-1 h-[2px] w-6 -rotate-[28deg] rounded-full"
-              style={{ backgroundColor: currentTheme.spider }}
+              style={{
+                backgroundColor: currentTheme.spider,
+              }}
             />
 
             <div
               className="absolute left-[-20px] top-3 h-[2px] w-6 -rotate-[12deg] rounded-full"
-              style={{ backgroundColor: currentTheme.spider }}
+              style={{
+                backgroundColor: currentTheme.spider,
+              }}
             />
 
             <div
               className="absolute left-[-18px] top-5 h-[2px] w-6 rotate-[15deg] rounded-full"
-              style={{ backgroundColor: currentTheme.spider }}
+              style={{
+                backgroundColor: currentTheme.spider,
+              }}
             />
 
             <div
               className="absolute left-[-15px] top-7 h-[2px] w-5 rotate-[30deg] rounded-full"
-              style={{ backgroundColor: currentTheme.spider }}
+              style={{
+                backgroundColor: currentTheme.spider,
+              }}
             />
 
             {/* Right legs */}
             <div
               className="absolute right-[-18px] top-1 h-[2px] w-6 rotate-[28deg] rounded-full"
-              style={{ backgroundColor: currentTheme.spider }}
+              style={{
+                backgroundColor: currentTheme.spider,
+              }}
             />
 
             <div
               className="absolute right-[-20px] top-3 h-[2px] w-6 rotate-[12deg] rounded-full"
-              style={{ backgroundColor: currentTheme.spider }}
+              style={{
+                backgroundColor: currentTheme.spider,
+              }}
             />
 
             <div
               className="absolute right-[-18px] top-5 h-[2px] w-6 -rotate-[15deg] rounded-full"
-              style={{ backgroundColor: currentTheme.spider }}
+              style={{
+                backgroundColor: currentTheme.spider,
+              }}
             />
 
             <div
               className="absolute right-[-15px] top-7 h-[2px] w-5 -rotate-[30deg] rounded-full"
-              style={{ backgroundColor: currentTheme.spider }}
+              style={{
+                backgroundColor: currentTheme.spider,
+              }}
             />
           </div>
         </div>
@@ -451,12 +548,50 @@ export default function SpiderClock({
           style={{
             backgroundColor: currentTheme.accent,
             borderColor: currentTheme.face,
-            boxShadow: `0 0 15px ${currentTheme.glow}`,
+            boxShadow: `
+              0 0 10px ${currentTheme.glow},
+              0 0 20px ${currentTheme.glow}
+            `,
           }}
         />
 
-        <div className="absolute left-1/2 top-1/2 z-[61] h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_6px_white]" />
+        {/* Center highlight */}
+        <div className="absolute left-1/2 top-1/2 z-[61] h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_8px_white]" />
       </div>
+
+      {/* Animation keyframes */}
+      <style jsx>{`
+        @keyframes spider-float {
+          0%,
+          100% {
+            transform: translateY(0) rotate(-1deg);
+          }
+
+          50% {
+            transform: translateY(-9px) rotate(1deg);
+          }
+        }
+
+        @keyframes spider-clock-spin {
+          from {
+            transform: rotate(0deg);
+          }
+
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        @keyframes spider-clock-spin-reverse {
+          from {
+            transform: rotate(360deg);
+          }
+
+          to {
+            transform: rotate(0deg);
+          }
+        }
+      `}</style>
     </div>
   );
 }

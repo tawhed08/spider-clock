@@ -117,7 +117,7 @@ export default function Home() {
         <div className="mt-6 grid w-full max-w-5xl grid-cols-1 gap-4 sm:mt-8 sm:gap-5 md:grid-cols-2">
           <div className="glass-panel min-w-0 rounded-3xl p-1">
             <div className="min-w-0 overflow-hidden rounded-[22px]">
-              <Alarm />
+             <Alarm timezone={timezone} />
             </div>
           </div>
 
