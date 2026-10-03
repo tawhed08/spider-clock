@@ -18,18 +18,28 @@
 
 html {
   scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
+  min-width: 320px;
+  overflow-x: hidden;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button,
-select {
+select,
+input {
   font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
 }
 
 ::selection {
@@ -37,9 +47,13 @@ select {
   color: #ffffff;
 }
 
-/* Premium scrollbar */
+/* --------------------------------
+   Premium Scrollbar
+-------------------------------- */
+
 ::-webkit-scrollbar {
   width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
@@ -55,7 +69,10 @@ select {
   background: rgba(163, 230, 53, 0.5);
 }
 
-/* Spider web background */
+/* --------------------------------
+   Spider Web Background
+-------------------------------- */
+
 .spider-web {
   background-image:
     radial-gradient(
@@ -73,6 +90,7 @@ select {
       rgba(255, 255, 255, 0.018) 0deg 1deg,
       transparent 1deg 30deg
     );
+
   mask-image: radial-gradient(circle, black 0%, transparent 72%);
   -webkit-mask-image: radial-gradient(
     circle,
@@ -81,24 +99,48 @@ select {
   );
 }
 
+/* --------------------------------
+   Glass Panel
+-------------------------------- */
+
 .glass-panel {
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow:
     0 20px 60px rgba(0, 0, 0, 0.25),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+
+  transition:
+    border-color 300ms ease,
+    box-shadow 300ms ease,
+    background-color 300ms ease;
 }
+
+.glass-panel:hover {
+  border-color: rgba(163, 230, 53, 0.1);
+}
+
+/* --------------------------------
+   Top Glow Line
+-------------------------------- */
 
 .glow-line {
   background: linear-gradient(
     90deg,
-    transparent,
-    rgba(163, 230, 53, 0.7),
-    transparent
+    transparent 0%,
+    rgba(163, 230, 53, 0.15) 20%,
+    rgba(163, 230, 53, 0.7) 50%,
+    rgba(163, 230, 53, 0.15) 80%,
+    transparent 100%
   );
 }
+
+/* --------------------------------
+   Animations
+-------------------------------- */
 
 @keyframes spider-pulse {
   0%,
@@ -137,6 +179,7 @@ select {
     transform: translateY(-7px) rotate(2deg);
   }
 }
+
 @keyframes spider-thread {
   0%,
   100% {
@@ -151,17 +194,97 @@ select {
 .spider-thread {
   animation: spider-thread 3s ease-in-out infinite;
 }
-@keyframes spider-thread {
-  0%,
-  100% {
-    opacity: 0.25;
+
+/* --------------------------------
+   Mobile Optimization
+-------------------------------- */
+
+@media (max-width: 640px) {
+  html {
+    scroll-behavior: auto;
   }
 
-  50% {
+  body {
+    font-size: 14px;
+  }
+
+  .spider-web {
     opacity: 0.55;
+  }
+
+  .glass-panel {
+    border-radius: 1.25rem;
+    box-shadow:
+      0 14px 40px rgba(0, 0, 0, 0.22),
+      inset 0 1px 0 rgba(255, 255, 255, 0.035);
+
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
   }
 }
 
-.spider-thread {
-  animation: spider-thread 3s ease-in-out infinite;
+/* --------------------------------
+   Small Phones
+-------------------------------- */
+
+@media (max-width: 380px) {
+  .spider-web {
+    opacity: 0.4;
+  }
+
+  .glass-panel {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}
+
+/* --------------------------------
+   Touch Devices
+-------------------------------- */
+
+@media (hover: none) and (pointer: coarse) {
+  .glass-panel:hover {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+}
+
+/* --------------------------------
+   Reduced Motion
+-------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --------------------------------
+   Focus Accessibility
+-------------------------------- */
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 1px solid rgba(163, 230, 53, 0.7);
+  outline-offset: 3px;
+}
+
+/* --------------------------------
+   Safe Area Support
+   For modern mobile browsers
+-------------------------------- */
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
