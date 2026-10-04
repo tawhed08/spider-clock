@@ -1,7 +1,9 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
+import { isShortcutTarget } from "@/lib/keyboard";
 
 interface Lap {
   id: number;
@@ -13,67 +15,58 @@ export default function Stopwatch() {
   const [time, setTime] = useState(0);
   const [running, setRunning] = useState(false);
   const [laps, setLaps] = useState<Lap[]>([]);
+  const elapsedRef = useRef(0);
+  const startedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!running) {
       return;
     }
 
-    const interval = setInterval(() => {
-      setTime((current) => current + 10);
-    }, 10);
-
-    return () => clearInterval(interval);
-  }, [running]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code === "Space") {
-        event.preventDefault();
-        setRunning((current) => !current);
-      }
-
-      if (event.key.toLowerCase() === "r") {
-        setRunning(false);
-        setTime(0);
-        setLaps([]);
-      }
-
-      if (event.key.toLowerCase() === "l" && running && time > 0) {
-        setLaps((currentLaps) => {
-          const previousTotal =
-            currentLaps.length > 0
-              ? currentLaps[currentLaps.length - 1].total
-              : 0;
-
-          return [
-            ...currentLaps,
-            {
-              id: Date.now(),
-              total: time,
-              split: time - previousTotal,
-            },
-          ];
-        });
+    const updateElapsed = () => {
+      if (startedAtRef.current !== null) {
+        setTime(elapsedRef.current + performance.now() - startedAtRef.current);
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 25);
+    document.addEventListener("visibilitychange", updateElapsed);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", updateElapsed);
+    };
+  }, [running]);
 
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [running, time]);
+  const start = useCallback(() => {
+    startedAtRef.current = performance.now();
+    setRunning(true);
+  }, []);
 
-  const reset = () => {
+  const pause = useCallback(() => {
+    if (startedAtRef.current !== null) {
+      elapsedRef.current += performance.now() - startedAtRef.current;
+      startedAtRef.current = null;
+      setTime(elapsedRef.current);
+    }
+    setRunning(false);
+  }, []);
+
+  const reset = useCallback(() => {
+    startedAtRef.current = null;
+    elapsedRef.current = 0;
     setRunning(false);
     setTime(0);
     setLaps([]);
-  };
+  }, []);
 
-  const addLap = () => {
-    if (!running || time === 0) {
-      return;
-    }
+  const addLap = useCallback(() => {
+    if (!running || startedAtRef.current === null) return;
 
+    const lapTime =
+      elapsedRef.current + performance.now() - startedAtRef.current;
+    if (lapTime === 0) return;
+    setTime(lapTime);
     setLaps((currentLaps) => {
       const previousTotal =
         currentLaps.length > 0
@@ -83,12 +76,34 @@ export default function Stopwatch() {
       return [
         ...currentLaps,
         {
-          id: Date.now(),
-          total: time,
-          split: time - previousTotal,
+          id: lapTime,
+          total: lapTime,
+          split: lapTime - previousTotal,
         },
       ];
     });
+  }, [running]);
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (
+      !isShortcutTarget(event.target) ||
+      event.repeat ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    ) {
+      return;
+    }
+
+    if (event.code === "Space") {
+    event.preventDefault();
+    if (running) pause();
+    else start();
+    } else if (event.key.toLowerCase() === "r") {
+    reset();
+    } else if (event.key.toLowerCase() === "l") {
+    addLap();
+    }
   };
 
   const minutes = Math.floor(time / 60000);
@@ -122,7 +137,12 @@ export default function Stopwatch() {
   }, [laps]);
 
   return (
-    <section className="relative overflow-hidden rounded-[22px] border border-white/8 bg-white/[0.025] p-5 sm:p-6">
+    <section
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      aria-label="Stopwatch. Focus this panel to use Space to start or pause, L to record a lap, and R to reset."
+      className="relative overflow-hidden rounded-[22px] border border-white/8 bg-white/[0.025] p-5 outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70 sm:p-6"
+    >
       {/* Ambient glows */}
       <div className="pointer-events-none absolute -left-20 -top-20 h-40 w-40 rounded-full bg-cyan-400/[0.05] blur-3xl" />
       <div className="pointer-events-none absolute -bottom-24 -right-20 h-48 w-48 rounded-full bg-blue-500/[0.04] blur-3xl" />
@@ -231,7 +251,7 @@ export default function Stopwatch() {
       <div className="relative mt-5 grid grid-cols-3 gap-2">
         <button
           type="button"
-          onClick={() => setRunning((current) => !current)}
+          onClick={running ? pause : start}
           className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.07] px-3 py-3 text-xs font-bold text-cyan-300 transition-all duration-300 hover:border-cyan-400/30 hover:bg-cyan-400/[0.12] active:scale-[0.98]"
         >
           {running ? "Pause" : time > 0 ? "Resume" : "Start"}
@@ -296,6 +316,7 @@ export default function Stopwatch() {
             <button
               type="button"
               onClick={() => setLaps([])}
+              aria-label="Clear stopwatch laps"
               className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/25 transition-colors hover:text-cyan-300"
             >
               Clear

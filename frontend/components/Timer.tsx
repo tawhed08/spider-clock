@@ -1,6 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
+import { isShortcutTarget } from "@/lib/keyboard";
+import {
+  requestNotificationPermission,
+  showBrowserNotification,
+} from "@/lib/notifications";
 
 interface SoundOption {
   id: string;
@@ -50,10 +56,13 @@ export default function Timer() {
   const [selectedSound, setSelectedSound] = useState("classic");
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [previewing, setPreviewing] = useState(false);
+  const [audioError, setAudioError] = useState("");
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const soundTimersRef = useRef<Set<TimeoutHandle>>(new Set());
   const previewTimerRef = useRef<TimeoutHandle | null>(null);
+  const deadlineRef = useRef<number | null>(null);
+  const completionHandledRef = useRef(false);
 
   const totalInputMilliseconds = useMemo(() => {
     const h = Math.max(0, Math.min(99, Number(hours) || 0));
@@ -64,6 +73,8 @@ export default function Timer() {
   }, [hours, minutes, seconds]);
 
   const createAudioContext = useCallback(() => {
+    if (typeof window === "undefined") return null;
+
     if (!audioContextRef.current) {
       const AudioContextClass =
         window.AudioContext ||
@@ -75,11 +86,19 @@ export default function Timer() {
 
       if (AudioContextClass) {
         audioContextRef.current = new AudioContextClass();
+      } else {
+        setAudioError("Audio playback is not supported by this browser.");
       }
     }
 
     if (audioContextRef.current?.state === "suspended") {
-      void audioContextRef.current.resume();
+      void audioContextRef.current.resume().then(
+        () => setAudioError(""),
+        (error: unknown) => {
+          console.error("Unable to resume timer audio:", error);
+          setAudioError("Allow audio playback in your browser to hear the timer.");
+        },
+      );
     }
 
     return audioContextRef.current;
@@ -227,24 +246,29 @@ export default function Timer() {
   ]);
 
   const startTimer = useCallback(() => {
-    if (timeLeft <= 0) {
-      if (totalInputMilliseconds <= 0) {
-        return;
-      }
+    const duration = timeLeft > 0 ? timeLeft : totalInputMilliseconds;
+    if (duration <= 0) return;
 
-      setTimeLeft(totalInputMilliseconds);
-    }
-
+    deadlineRef.current = Date.now() + duration;
+    completionHandledRef.current = false;
+    setTimeLeft(duration);
     setFinished(false);
     setRunning(true);
     createAudioContext();
+    void requestNotificationPermission();
   }, [createAudioContext, timeLeft, totalInputMilliseconds]);
 
   const pauseTimer = useCallback(() => {
+    if (deadlineRef.current !== null) {
+      setTimeLeft(Math.max(0, deadlineRef.current - Date.now()));
+      deadlineRef.current = null;
+    }
     setRunning(false);
   }, []);
 
   const resetTimer = useCallback(() => {
+    deadlineRef.current = null;
+    completionHandledRef.current = false;
     setRunning(false);
     setFinished(false);
     stopSound();
@@ -260,76 +284,80 @@ export default function Timer() {
   }, [pauseTimer, running, startTimer]);
 
   useEffect(() => {
-    if (!running) {
-      return;
-    }
+    if (!running || deadlineRef.current === null) return;
 
-    const interval = setInterval(() => {
-      setTimeLeft((current) => {
-        if (current <= 50) {
-          clearInterval(interval);
-          setRunning(false);
-          setFinished(true);
-          return 0;
+    const updateRemaining = () => {
+      const remaining = Math.max(
+        0,
+        (deadlineRef.current ?? Date.now()) - Date.now(),
+      );
+      setTimeLeft(remaining);
+
+      if (remaining === 0 && !completionHandledRef.current) {
+        completionHandledRef.current = true;
+        deadlineRef.current = null;
+        setRunning(false);
+        setFinished(true);
+        if (soundEnabled) playSoundPattern(selectedSound);
+        if (document.visibilityState === "hidden") {
+          showBrowserNotification(
+            "Timer complete",
+            "Your Spider Clock timer has finished.",
+          );
         }
-
-        return current - 50;
-      });
-    }, 50);
-
-    return () => clearInterval(interval);
-  }, [running]);
-
-  useEffect(() => {
-    if (!finished || !soundEnabled) {
-      return;
-    }
-
-    playSoundPattern(selectedSound);
-
-    return () => {
-      stopSound();
-    };
-  }, [
-    finished,
-    playSoundPattern,
-    selectedSound,
-    soundEnabled,
-    stopSound,
-  ]);
-
-  useEffect(() => {
-    const handleKeyboard = (event: KeyboardEvent) => {
-      if (event.code === "Space") {
-        event.preventDefault();
-        toggleTimer();
-      }
-
-      if (event.key.toLowerCase() === "r") {
-        resetTimer();
       }
     };
 
-    window.addEventListener("keydown", handleKeyboard);
-
+    const timeout = setTimeout(
+      updateRemaining,
+      Math.max(0, deadlineRef.current - Date.now()),
+    );
+    const interval = setInterval(updateRemaining, 50);
+    document.addEventListener("visibilitychange", updateRemaining);
     return () => {
-      window.removeEventListener("keydown", handleKeyboard);
+      clearTimeout(timeout);
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", updateRemaining);
     };
-  }, [resetTimer, toggleTimer]);
+  }, [playSoundPattern, running, selectedSound, soundEnabled]);
 
   useEffect(() => {
     return () => {
       clearSoundTimers();
-
-      if (previewTimerRef.current) {
-        clearTimeout(previewTimerRef.current);
-      }
-
-      if (audioContextRef.current) {
-        void audioContextRef.current.close();
-      }
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+      if (audioContextRef.current) void audioContextRef.current.close();
     };
   }, [clearSoundTimers]);
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (
+      !isShortcutTarget(event.target) ||
+      event.repeat ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    ) {
+      return;
+    }
+
+    if (event.code === "Space") {
+      event.preventDefault();
+      toggleTimer();
+    } else if (event.key.toLowerCase() === "r") {
+      resetTimer();
+    }
+  };
+
+  const setPreset = (durationMinutes: number) => {
+    const newMinutes = String(durationMinutes).padStart(2, "0");
+    setHours("00");
+    setMinutes(newMinutes);
+    setSeconds("00");
+    setTimeLeft(durationMinutes * 60_000);
+    setFinished(false);
+    deadlineRef.current = null;
+    completionHandledRef.current = false;
+  };
 
   const displayHours = Math.floor(timeLeft / 3600000);
   const displayMinutes = Math.floor((timeLeft % 3600000) / 60000);
@@ -360,7 +388,12 @@ export default function Timer() {
         : "Ready";
 
   return (
-    <section className="relative overflow-hidden rounded-[22px] border border-white/8 bg-white/[0.025] p-5 sm:p-6">
+    <section
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      aria-label="Timer. Focus this panel to use Space to start or pause and R to reset."
+      className="relative overflow-hidden rounded-[22px] border border-white/8 bg-white/[0.025] p-5 outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70 sm:p-6"
+    >
       <div className="pointer-events-none absolute -right-24 -top-24 h-48 w-48 rounded-full bg-violet-400/[0.06] blur-3xl" />
 
       <div className="relative flex items-start justify-between">
@@ -578,6 +611,26 @@ export default function Timer() {
         </div>
       )}
 
+      <div className="mt-4">
+        <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.2em] text-white/25">
+          Quick Presets
+        </p>
+        <div className="grid grid-cols-4 gap-2">
+          {[1, 5, 10, 25].map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => setPreset(preset)}
+              disabled={running}
+              aria-label={`Set timer for ${preset} minute${preset === 1 ? "" : "s"}`}
+              className="rounded-xl border border-violet-400/10 bg-violet-400/[0.04] px-2 py-2.5 text-xs font-bold text-violet-200/70 transition hover:border-violet-400/25 hover:bg-violet-400/[0.09] disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              {preset}m
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="relative mt-5 rounded-xl border border-white/7 bg-white/[0.02] p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -595,6 +648,7 @@ export default function Timer() {
           <button
             type="button"
             onClick={() => setSoundEnabled((current) => !current)}
+            aria-label={soundEnabled ? "Turn timer sound off" : "Turn timer sound on"}
             className={`rounded-full border px-3 py-1.5 text-[9px] font-bold uppercase tracking-[0.15em] transition ${
               soundEnabled
                 ? "border-violet-400/20 bg-violet-400/[0.08] text-violet-300"
@@ -607,6 +661,7 @@ export default function Timer() {
 
         <div className="mt-3 flex gap-2">
           <select
+            aria-label="Timer completion sound"
             value={selectedSound}
             onChange={(event) => {
               setSelectedSound(event.target.value);
@@ -628,11 +683,17 @@ export default function Timer() {
           <button
             type="button"
             onClick={previewSound}
+            aria-label={previewing ? "Stop timer sound preview" : "Preview timer sound"}
             className="rounded-xl border border-white/8 bg-white/[0.035] px-4 py-3 text-xs font-bold text-white/50 transition hover:bg-white/[0.07] hover:text-white/80 active:scale-[0.98]"
           >
             {previewing ? "Stop" : "Preview"}
           </button>
         </div>
+        {audioError && (
+          <p role="status" className="mt-2 text-[10px] text-amber-200/70">
+            {audioError}
+          </p>
+        )}
       </div>
 
       <div className="relative mt-5 grid grid-cols-2 gap-3">

@@ -1,9 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import type { KeyboardEvent } from "react";
+import { isShortcutTarget } from "@/lib/keyboard";
+import {
+  requestNotificationPermission,
+  showBrowserNotification,
+} from "@/lib/notifications";
 
 interface AlarmProps {
   timezone: string;
+  timezoneReady: boolean;
 }
 
 interface SoundOption {
@@ -19,7 +33,56 @@ interface AlarmHistoryItem {
   sound: string;
 }
 
+interface PersistedAlarm {
+  alarmTime: string;
+  label: string;
+  enabled: boolean;
+  selectedSound: string;
+  targetAt: number | null;
+  timezone: string;
+  history: AlarmHistoryItem[];
+}
+
 type TimeoutHandle = ReturnType<typeof setTimeout>;
+const ALARM_STORAGE_KEY = "spider-clock-alarm";
+
+function getNextAlarmTimestamp(
+  alarmTime: string,
+  timezone: string,
+  now = Date.now(),
+): number | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(alarmTime);
+  if (!match) return null;
+
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const firstMinute = Math.floor(now / 60_000) * 60_000 + 60_000;
+
+  for (let minute = 0; minute <= 26 * 60; minute += 1) {
+    const timestamp = firstMinute + minute * 60_000;
+    const parts = formatter.formatToParts(new Date(timestamp));
+    const hour = parts.find((part) => part.type === "hour")?.value;
+    const minuteValue = parts.find((part) => part.type === "minute")?.value;
+    if (hour === match[1] && minuteValue === match[2]) return timestamp;
+  }
+
+  return null;
+}
+
+function isAlarmHistoryItem(value: unknown): value is AlarmHistoryItem {
+  if (typeof value !== "object" || value === null) return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.id === "number" &&
+    typeof item.time === "string" &&
+    typeof item.label === "string" &&
+    typeof item.sound === "string"
+  );
+}
 
 const SOUND_OPTIONS: SoundOption[] = [
   {
@@ -49,20 +112,130 @@ const SOUND_OPTIONS: SoundOption[] = [
   },
 ];
 
-export default function Alarm({ timezone }: AlarmProps) {
-  const [alarmTime, setAlarmTime] = useState("");
-  const [label, setLabel] = useState("");
-  const [enabled, setEnabled] = useState(false);
+const DEFAULT_ALARM: PersistedAlarm = {
+  alarmTime: "",
+  label: "",
+  enabled: false,
+  selectedSound: "classic",
+  targetAt: null,
+  timezone: "UTC",
+  history: [],
+};
+
+let cachedAlarm: PersistedAlarm | null = null;
+const alarmListeners = new Set<() => void>();
+
+function getAlarmSnapshot(): PersistedAlarm {
+  if (typeof window === "undefined") return DEFAULT_ALARM;
+  if (cachedAlarm) return cachedAlarm;
+
+  try {
+    const raw = window.localStorage.getItem(ALARM_STORAGE_KEY);
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed === "object" && parsed !== null) {
+        const saved = parsed as Partial<PersistedAlarm>;
+        const alarmTime =
+          typeof saved.alarmTime === "string" &&
+          /^([01]\d|2[0-3]):([0-5]\d)$/.test(saved.alarmTime)
+            ? saved.alarmTime
+            : "";
+        const selectedSound = SOUND_OPTIONS.some(
+          (sound) => sound.id === saved.selectedSound,
+        )
+          ? saved.selectedSound!
+          : "classic";
+        const savedTimezone =
+          typeof saved.timezone === "string" ? saved.timezone : "UTC";
+        let timezone = savedTimezone;
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: savedTimezone });
+        } catch {
+          timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        }
+        const targetAt =
+          typeof saved.targetAt === "number" &&
+          Number.isFinite(saved.targetAt) &&
+          saved.targetAt > Date.now()
+            ? saved.targetAt
+            : saved.enabled && alarmTime
+              ? getNextAlarmTimestamp(alarmTime, timezone)
+              : null;
+
+        cachedAlarm = {
+          alarmTime,
+          label: typeof saved.label === "string" ? saved.label : "",
+          enabled: Boolean(saved.enabled && alarmTime && targetAt),
+          selectedSound,
+          targetAt,
+          timezone,
+          history: Array.isArray(saved.history)
+            ? saved.history.filter(isAlarmHistoryItem).slice(0, 8)
+            : [],
+        };
+        return cachedAlarm;
+      }
+    }
+  } catch (error) {
+    console.error("Unable to restore alarm settings:", error);
+  }
+
+  cachedAlarm = DEFAULT_ALARM;
+  return cachedAlarm;
+}
+
+function subscribeToAlarm(listener: () => void): () => void {
+  alarmListeners.add(listener);
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === null || event.key === ALARM_STORAGE_KEY) {
+      cachedAlarm = null;
+      alarmListeners.forEach((notify) => notify());
+    }
+  };
+  window.addEventListener("storage", handleStorage);
+  return () => {
+    alarmListeners.delete(listener);
+    window.removeEventListener("storage", handleStorage);
+  };
+}
+
+function updateAlarmPreferences(updates: Partial<PersistedAlarm>): void {
+  const updated = { ...getAlarmSnapshot(), ...updates };
+  cachedAlarm = updated;
+  try {
+    window.localStorage.setItem(ALARM_STORAGE_KEY, JSON.stringify(updated));
+  } catch (error) {
+    console.error("Unable to save alarm settings:", error);
+  }
+  alarmListeners.forEach((listener) => listener());
+}
+
+export default function Alarm({ timezone, timezoneReady }: AlarmProps) {
+  const alarm = useSyncExternalStore(
+    subscribeToAlarm,
+    getAlarmSnapshot,
+    () => DEFAULT_ALARM,
+  );
+  const {
+    alarmTime,
+    label,
+    enabled,
+    selectedSound,
+    history,
+    targetAt,
+    timezone: armedTimezone,
+  } = alarm;
   const [ringing, setRinging] = useState(false);
-  const [currentTime, setCurrentTime] = useState("00:00:00");
-  const [selectedSound, setSelectedSound] = useState("classic");
+  const [currentTime, setCurrentTime] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
-  const [history, setHistory] = useState<AlarmHistoryItem[]>([]);
+  const [audioError, setAudioError] = useState("");
 
   const audioContextRef = useRef<AudioContext | null>(null);
+  const oscillatorsRef = useRef<Set<OscillatorNode>>(new Set());
   const soundTimersRef = useRef<Set<TimeoutHandle>>(new Set());
   const previewTimerRef = useRef<TimeoutHandle | null>(null);
   const alarmLoopRef = useRef<TimeoutHandle | null>(null);
+  const firedTargetRef = useRef<number | null>(null);
 
   const selectedSoundInfo = useMemo(
     () =>
@@ -70,8 +243,15 @@ export default function Alarm({ timezone }: AlarmProps) {
       SOUND_OPTIONS[0],
     [selectedSound],
   );
+  const effectiveTargetAt = useMemo(() => {
+    if (!enabled || !alarmTime) return null;
+    if (armedTimezone === timezone && targetAt !== null) return targetAt;
+    return getNextAlarmTimestamp(alarmTime, timezone);
+  }, [alarmTime, armedTimezone, enabled, targetAt, timezone]);
 
   const createAudioContext = useCallback(() => {
+    if (typeof window === "undefined") return null;
+
     if (!audioContextRef.current) {
       const AudioContextClass =
         window.AudioContext ||
@@ -83,11 +263,19 @@ export default function Alarm({ timezone }: AlarmProps) {
 
       if (AudioContextClass) {
         audioContextRef.current = new AudioContextClass();
+      } else {
+        setAudioError("Audio playback is not supported by this browser.");
       }
     }
 
     if (audioContextRef.current?.state === "suspended") {
-      void audioContextRef.current.resume();
+      void audioContextRef.current.resume().then(
+        () => setAudioError(""),
+        (error: unknown) => {
+          console.error("Unable to resume alarm audio:", error);
+          setAudioError("Allow audio playback in your browser to hear the alarm.");
+        },
+      );
     }
 
     return audioContextRef.current;
@@ -127,6 +315,12 @@ export default function Alarm({ timezone }: AlarmProps) {
       oscillator.connect(gain);
       gain.connect(context.destination);
 
+      oscillatorsRef.current.add(oscillator);
+      oscillator.addEventListener(
+        "ended",
+        () => oscillatorsRef.current.delete(oscillator),
+        { once: true },
+      );
       oscillator.start();
       oscillator.stop(context.currentTime + duration + 0.05);
     },
@@ -154,6 +348,14 @@ export default function Alarm({ timezone }: AlarmProps) {
       alarmLoopRef.current = null;
     }
 
+    oscillatorsRef.current.forEach((oscillator) => {
+      try {
+        oscillator.stop();
+      } catch (error) {
+        console.error("Unable to stop alarm audio:", error);
+      }
+    });
+    oscillatorsRef.current.clear();
     setPreviewing(false);
   }, [clearSoundTimers]);
 
@@ -257,15 +459,16 @@ export default function Alarm({ timezone }: AlarmProps) {
   ]);
 
   const saveAlarm = useCallback(() => {
-    if (!alarmTime) {
-      return;
-    }
+    if (!alarmTime) return;
+    const nextTarget = getNextAlarmTimestamp(alarmTime, timezone);
+    if (nextTarget === null) return;
 
     stopSound();
     createAudioContext();
 
-    setEnabled(true);
     setRinging(false);
+    firedTargetRef.current = null;
+    void requestNotificationPermission();
 
     const newHistoryItem: AlarmHistoryItem = {
       id: Date.now(),
@@ -274,8 +477,7 @@ export default function Alarm({ timezone }: AlarmProps) {
       sound: selectedSound,
     };
 
-    setHistory((current) => {
-      const filtered = current.filter(
+    const filtered = history.filter(
         (item) =>
           !(
             item.time === alarmTime &&
@@ -283,40 +485,62 @@ export default function Alarm({ timezone }: AlarmProps) {
             item.sound === selectedSound
           ),
       );
-
-      return [newHistoryItem, ...filtered].slice(0, 8);
+    updateAlarmPreferences({
+      enabled: true,
+      targetAt: nextTarget,
+      timezone,
+      history: [newHistoryItem, ...filtered].slice(0, 8),
     });
   }, [
     alarmTime,
     createAudioContext,
+    history,
     label,
     selectedSound,
     stopSound,
+    timezone,
   ]);
 
   const dismissAlarm = useCallback(() => {
     setRinging(false);
-    setEnabled(false);
+    updateAlarmPreferences({ enabled: false, targetAt: null });
     stopSound();
   }, [stopSound]);
 
   const clearAlarm = useCallback(() => {
     stopSound();
 
-    setAlarmTime("");
-    setLabel("");
-    setEnabled(false);
     setRinging(false);
+    updateAlarmPreferences({
+      alarmTime: "",
+      label: "",
+      enabled: false,
+      targetAt: null,
+    });
   }, [stopSound]);
 
   const toggleAlarm = useCallback(() => {
-    createAudioContext();
+    const nextEnabled = !enabled;
+    if (nextEnabled) {
+      if (!alarmTime) return;
+      const nextTarget = getNextAlarmTimestamp(alarmTime, timezone);
+      if (nextTarget === null) return;
+      firedTargetRef.current = null;
+      createAudioContext();
+      void requestNotificationPermission();
+    }
 
-    setEnabled((current) => !current);
+    updateAlarmPreferences({
+      enabled: nextEnabled,
+      targetAt: nextEnabled
+        ? getNextAlarmTimestamp(alarmTime, timezone)
+        : null,
+      timezone,
+    });
     setRinging(false);
 
     stopSound();
-  }, [createAudioContext, stopSound]);
+  }, [alarmTime, createAudioContext, enabled, stopSound, timezone]);
 
   useEffect(() => {
     const updateCurrentTime = () => {
@@ -336,72 +560,64 @@ export default function Alarm({ timezone }: AlarmProps) {
     updateCurrentTime();
 
     const interval = setInterval(updateCurrentTime, 1000);
+    document.addEventListener("visibilitychange", updateCurrentTime);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", updateCurrentTime);
+    };
   }, [timezone]);
 
   useEffect(() => {
-    if (!enabled || ringing || !alarmTime) {
+    if (!timezoneReady || !enabled || ringing || effectiveTargetAt === null) {
       return;
     }
 
     const checkAlarm = () => {
-      const now = new Date();
-
-      const formatter = new Intl.DateTimeFormat("en-GB", {
-        timeZone: timezone,
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
+      if (Date.now() < effectiveTargetAt) return;
+      if (firedTargetRef.current === effectiveTargetAt) return;
+      firedTargetRef.current = effectiveTargetAt;
+      setRinging(true);
+      updateAlarmPreferences({
+        enabled: false,
+        targetAt: effectiveTargetAt,
+        timezone,
       });
-
-      const time = formatter.format(now);
-
-      if (time === alarmTime) {
-        setRinging(true);
-        setEnabled(false);
-        startAlarmSound();
+      startAlarmSound();
+      if (document.visibilityState === "hidden") {
+        showBrowserNotification(
+          label.trim() || "Spider Alarm",
+          `Alarm time: ${alarmTime} (${timezone})`,
+        );
       }
     };
-
-    checkAlarm();
-
-    const interval = setInterval(checkAlarm, 1000);
-
-    return () => clearInterval(interval);
+    let timeout: TimeoutHandle;
+    const scheduleCheck = () => {
+      clearTimeout(timeout);
+      const remaining = effectiveTargetAt - Date.now();
+      if (remaining > 0) {
+        timeout = setTimeout(scheduleCheck, remaining);
+        return;
+      }
+      checkAlarm();
+    };
+    timeout = setTimeout(scheduleCheck, Math.max(0, effectiveTargetAt - Date.now()));
+    document.addEventListener("visibilitychange", scheduleCheck);
+    return () => {
+      clearTimeout(timeout);
+      document.removeEventListener("visibilitychange", scheduleCheck);
+    };
   }, [
     alarmTime,
     enabled,
+    effectiveTargetAt,
+    label,
     ringing,
     startAlarmSound,
+    targetAt,
+    timezoneReady,
     timezone,
   ]);
-
-  useEffect(() => {
-    const handleKeyboard = (event: KeyboardEvent) => {
-      if (event.code === "Space") {
-        event.preventDefault();
-
-        if (alarmTime) {
-          toggleAlarm();
-        }
-      }
-
-      if (event.key === "Escape") {
-        dismissAlarm();
-      }
-
-      if (event.key.toLowerCase() === "c") {
-        clearAlarm();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyboard);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyboard);
-    };
-  }, [alarmTime, clearAlarm, dismissAlarm, toggleAlarm]);
 
   useEffect(() => {
     return () => {
@@ -421,8 +637,32 @@ export default function Alarm({ timezone }: AlarmProps) {
     };
   }, [clearSoundTimers]);
 
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (
+      !isShortcutTarget(event.target) ||
+      event.repeat ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    ) {
+      return;
+    }
+    if (event.key.toLowerCase() === "a" && alarmTime) {
+      toggleAlarm();
+    } else if (event.key === "Escape" && ringing) {
+      dismissAlarm();
+    } else if (event.key.toLowerCase() === "c" && alarmTime) {
+      clearAlarm();
+    }
+  };
+
   return (
-    <section className="relative overflow-hidden rounded-[22px] border border-white/8 bg-white/[0.025] p-5 sm:p-6">
+    <section
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      aria-label="Alarm. Focus this panel to use A to enable or pause, Escape to dismiss while ringing, and C to clear."
+      className="relative overflow-hidden rounded-[22px] border border-white/8 bg-white/[0.025] p-5 outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 sm:p-6"
+    >
       <div className="pointer-events-none absolute -right-24 -top-24 h-48 w-48 rounded-full bg-amber-400/[0.06] blur-3xl" />
 
       {/* Header */}
@@ -479,7 +719,7 @@ export default function Alarm({ timezone }: AlarmProps) {
           </p>
 
           <div className="mt-3 font-mono text-4xl font-bold tracking-tight text-white sm:text-5xl">
-            {currentTime}
+            {currentTime ?? "--:--:--"}
           </div>
 
           <p className="mt-2 text-[9px] text-white/20">
@@ -514,7 +754,12 @@ export default function Alarm({ timezone }: AlarmProps) {
             step="60"
             value={alarmTime}
             onChange={(event) => {
-              setAlarmTime(event.target.value);
+              updateAlarmPreferences({
+                alarmTime: event.target.value,
+                enabled: false,
+                targetAt: null,
+                timezone,
+              });
               setRinging(false);
               stopSound();
             }}
@@ -534,7 +779,9 @@ export default function Alarm({ timezone }: AlarmProps) {
             value={label}
             maxLength={40}
             placeholder="Spider Alarm"
-            onChange={(event) => setLabel(event.target.value)}
+            onChange={(event) =>
+              updateAlarmPreferences({ label: event.target.value })
+            }
             className="w-full rounded-xl border border-white/8 bg-white/[0.035] px-4 py-3 text-xs font-semibold text-white/70 outline-none transition placeholder:text-white/15 focus:border-amber-400/30 focus:bg-white/[0.06]"
           />
 
@@ -549,9 +796,10 @@ export default function Alarm({ timezone }: AlarmProps) {
             <div className="flex gap-2">
               <select
                 id="alarm-sound"
+                aria-label="Alarm sound"
                 value={selectedSound}
                 onChange={(event) => {
-                  setSelectedSound(event.target.value);
+                  updateAlarmPreferences({ selectedSound: event.target.value });
                   stopSound();
                 }}
                 className="min-w-0 flex-1 rounded-xl border border-white/8 bg-black/20 px-3 py-3 text-xs font-semibold text-white/70 outline-none focus:border-amber-400/30"
@@ -570,6 +818,7 @@ export default function Alarm({ timezone }: AlarmProps) {
               <button
                 type="button"
                 onClick={previewSound}
+                aria-label={previewing ? "Stop alarm sound preview" : "Preview alarm sound"}
                 className="shrink-0 rounded-xl border border-cyan-400/10 bg-cyan-400/[0.05] px-4 py-3 text-[10px] font-bold text-cyan-300/70 transition-all hover:border-cyan-400/25 hover:bg-cyan-400/[0.09] hover:text-cyan-300 active:scale-[0.97]"
               >
                 {previewing ? "Stop" : "Preview"}
@@ -589,6 +838,7 @@ export default function Alarm({ timezone }: AlarmProps) {
             type="button"
             onClick={saveAlarm}
             disabled={!alarmTime}
+            aria-label={enabled ? "Update and arm alarm" : "Arm alarm"}
             className="mt-4 w-full rounded-xl border border-amber-400/15 bg-amber-400/[0.07] px-4 py-3 text-xs font-bold text-amber-300 transition-all duration-300 hover:border-amber-400/30 hover:bg-amber-400/[0.12] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-30"
           >
             {enabled ? "Update Alarm" : "Arm Alarm"}
@@ -619,6 +869,7 @@ export default function Alarm({ timezone }: AlarmProps) {
                 }`}
               >
                 <svg
+                  aria-hidden="true"
                   className={`h-4 w-4 ${ringing ? "animate-bounce" : ""}`}
                   viewBox="0 0 24 24"
                   fill="none"
@@ -656,6 +907,7 @@ export default function Alarm({ timezone }: AlarmProps) {
                 enabled ? "bg-amber-400/30" : "bg-white/[0.08]"
               }`}
               aria-label={enabled ? "Disable alarm" : "Enable alarm"}
+              aria-pressed={enabled}
             >
               <span
                 className={`absolute top-1 h-4 w-4 rounded-full transition-all ${
@@ -684,6 +936,7 @@ export default function Alarm({ timezone }: AlarmProps) {
                 <button
                   type="button"
                   onClick={stopSound}
+                  aria-label="Stop alarm sound"
                   className="rounded-lg border border-white/8 bg-white/[0.035] px-3 py-2 text-[9px] font-bold text-white/35 transition-all hover:bg-white/[0.07] hover:text-white/60"
                 >
                   Stop Sound
@@ -693,6 +946,7 @@ export default function Alarm({ timezone }: AlarmProps) {
               <button
                 type="button"
                 onClick={dismissAlarm}
+                aria-label="Dismiss alarm"
                 className="mt-3 w-full rounded-xl border border-red-400/20 bg-red-400/[0.08] px-4 py-3 text-xs font-bold text-red-300 transition-all hover:bg-red-400/[0.13] active:scale-[0.98]"
               >
                 Dismiss Alarm
@@ -706,6 +960,7 @@ export default function Alarm({ timezone }: AlarmProps) {
               <button
                 type="button"
                 onClick={toggleAlarm}
+                aria-label={enabled ? "Pause alarm" : "Enable alarm"}
                 className="flex-1 rounded-xl border border-white/7 bg-white/[0.035] px-3 py-2.5 text-[10px] font-bold text-white/40 transition-all hover:bg-white/[0.06] hover:text-white/65"
               >
                 {enabled ? "Pause Alarm" : "Enable Alarm"}
@@ -714,6 +969,7 @@ export default function Alarm({ timezone }: AlarmProps) {
               <button
                 type="button"
                 onClick={clearAlarm}
+                aria-label="Clear alarm"
                 className="rounded-xl border border-white/7 bg-white/[0.025] px-3 py-2.5 text-[10px] font-bold text-white/25 transition-all hover:bg-white/[0.06] hover:text-white/50"
               >
                 Clear
@@ -747,13 +1003,21 @@ export default function Alarm({ timezone }: AlarmProps) {
                   key={item.id}
                   type="button"
                   onClick={() => {
-                    setAlarmTime(item.time);
-                    setLabel(item.label);
-                    setSelectedSound(item.sound);
-                    setEnabled(true);
+                    const nextTarget = getNextAlarmTimestamp(item.time, timezone);
+                    updateAlarmPreferences({
+                      alarmTime: item.time,
+                      label: item.label,
+                      selectedSound: item.sound,
+                      targetAt: nextTarget,
+                      timezone,
+                      enabled: nextTarget !== null,
+                    });
                     setRinging(false);
                     stopSound();
+                    createAudioContext();
+                    void requestNotificationPermission();
                   }}
+                  aria-label={`Arm ${item.label} for ${item.time}`}
                   className="flex w-full items-center justify-between gap-3 border-b border-white/[0.035] px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-white/[0.025]"
                 >
                   <div className="flex min-w-0 items-center gap-3">
@@ -782,13 +1046,19 @@ export default function Alarm({ timezone }: AlarmProps) {
         </div>
       )}
 
+      {audioError && (
+        <p role="status" className="mt-3 text-[10px] text-amber-200/70">
+          {audioError}
+        </p>
+      )}
+
       {/* Keyboard shortcuts */}
       <div className="mt-4 flex flex-wrap items-center justify-center gap-3 text-[9px] text-white/20">
         <span>
           <kbd className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 font-mono">
-            SPACE
+            A
           </kbd>{" "}
-          Enable
+          Enable / Pause
         </span>
 
         <span>

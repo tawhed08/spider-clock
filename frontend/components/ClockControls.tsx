@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 interface ClockControlsProps {
   timezone: string;
   setTimezone: (timezone: string) => void;
+  localTimezone: string;
   theme: string;
   setTheme: (theme: string) => void;
   fullscreen: () => void;
@@ -91,6 +92,7 @@ const themes = [
 export default function ClockControls({
   timezone,
   setTimezone,
+  localTimezone,
   theme,
   setTheme,
   fullscreen,
@@ -98,8 +100,38 @@ export default function ClockControls({
   const [search, setSearch] = useState("");
   const [openCities, setOpenCities] = useState(false);
 
+  const localCityName =
+    localTimezone.split("/").pop()?.replaceAll("_", " ") ?? localTimezone;
+  const cityOptions = useMemo(
+    () =>
+      cities.some((city) => city.timezone === localTimezone)
+        ? cities
+        : [
+            {
+              city: localCityName || "Local timezone",
+              country: "Your device",
+              timezone: localTimezone,
+              flag: "📍",
+            },
+            ...cities,
+          ],
+    [localCityName, localTimezone],
+  );
   const selectedCity =
-    cities.find((city) => city.timezone === timezone) ?? cities[0];
+    cityOptions.find((city) => city.timezone === timezone) ??
+    (timezone === localTimezone
+      ? {
+          city: localCityName || "Local timezone",
+          country: "Your device",
+          timezone,
+          flag: "📍",
+        }
+      : {
+          city: timezone.split("/").pop()?.replaceAll("_", " ") ?? timezone,
+          country: "Selected timezone",
+          timezone,
+          flag: "🌐",
+        });
 
   const selectedTheme =
     themes.find((item) => item.id === theme) ?? themes[0];
@@ -108,16 +140,16 @@ export default function ClockControls({
     const query = search.toLowerCase().trim();
 
     if (!query) {
-      return cities;
+      return cityOptions;
     }
 
-    return cities.filter(
+    return cityOptions.filter(
       (city) =>
         city.city.toLowerCase().includes(query) ||
         city.country.toLowerCase().includes(query) ||
         city.timezone.toLowerCase().includes(query),
     );
-  }, [search]);
+  }, [cityOptions, search]);
 
   const handleCitySelect = (cityTimezone: string) => {
     setTimezone(cityTimezone);
@@ -142,7 +174,7 @@ export default function ClockControls({
           </div>
 
           <span className="hidden font-mono text-[9px] text-white/20 sm:block">
-            SYSTEM ONLINE
+            TIMEZONE CONTROLS
           </span>
         </div>
 
@@ -154,6 +186,11 @@ export default function ClockControls({
               type="button"
               onClick={() => setOpenCities((value) => !value)}
               aria-expanded={openCities}
+              aria-label={`Select timezone. Currently ${selectedCity.city}, ${timezone}`}
+              aria-haspopup="listbox"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setOpenCities(false);
+              }}
               className="group flex min-h-[70px] w-full items-center justify-between rounded-2xl border border-white/8 bg-white/[0.035] px-3 py-2.5 text-left transition-all duration-300 hover:border-lime-400/20 hover:bg-white/[0.055] active:scale-[0.99] sm:min-h-[78px] sm:px-4 sm:py-3"
             >
               <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
@@ -210,6 +247,7 @@ export default function ClockControls({
 
                     <input
                       type="text"
+                      aria-label="Search city, country, or timezone"
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder="Search city, country..."
@@ -220,7 +258,11 @@ export default function ClockControls({
                 </div>
 
                 {/* Cities */}
-                <div className="max-h-64 overflow-y-auto p-1.5 sm:max-h-72 sm:p-2">
+                <div
+                  role="listbox"
+                  aria-label="Available timezones"
+                  className="max-h-64 overflow-y-auto p-1.5 sm:max-h-72 sm:p-2"
+                >
                   {filteredCities.length > 0 ? (
                     filteredCities.map((city) => {
                       const active = city.timezone === timezone;
@@ -229,6 +271,9 @@ export default function ClockControls({
                         <button
                           key={city.timezone}
                           type="button"
+                          role="option"
+                          aria-selected={active}
+                          aria-label={`${city.city}, ${city.country}, ${city.timezone}`}
                           onClick={() => handleCitySelect(city.timezone)}
                           className={`flex min-h-[46px] w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-all duration-200 sm:gap-3 sm:px-3 ${
                             active
@@ -298,6 +343,7 @@ export default function ClockControls({
                     onClick={() => setTheme(item.id)}
                     title={`${item.name} — ${item.description}`}
                     aria-label={`${item.name} theme`}
+                    aria-pressed={active}
                     className={`group relative flex h-9 items-center justify-center rounded-xl border transition-all duration-300 active:scale-95 sm:h-10 ${
                       active
                         ? "border-white/15 bg-white/[0.08]"
@@ -332,6 +378,7 @@ export default function ClockControls({
           <button
             type="button"
             onClick={fullscreen}
+            aria-label="Toggle fullscreen display"
             className="group flex min-h-[64px] items-center justify-center gap-3 rounded-2xl border border-lime-400/10 bg-lime-400/[0.035] px-4 transition-all duration-300 hover:border-lime-400/25 hover:bg-lime-400/[0.07] active:scale-[0.98] sm:min-h-[78px] sm:px-5"
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-lime-400/10 bg-lime-400/[0.05] text-lime-300 transition-transform duration-300 group-hover:scale-105 sm:h-10 sm:w-10">
@@ -371,7 +418,7 @@ export default function ClockControls({
             </span>
 
             <span className="text-[8px] font-medium uppercase tracking-[0.14em] text-white/25 sm:text-[9px] sm:tracking-[0.18em]">
-              Live connection
+              Selected timezone
             </span>
           </div>
 

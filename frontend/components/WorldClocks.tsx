@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface City {
   city: string;
@@ -18,6 +18,7 @@ interface CityTime {
   period: string;
   date: string;
   offset: string;
+  dayLabel: string;
 }
 
 const cities: City[] = [
@@ -79,24 +80,53 @@ const cities: City[] = [
   },
 ];
 
-function getCityTime(timezone: string, now: Date): CityTime {
-  const timeFormatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getFormatter(
+  timezone: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const key = `${timezone}:${JSON.stringify(options)}`;
+  let formatter = formatterCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", { ...options, timeZone: timezone });
+    formatterCache.set(key, formatter);
+  }
+  return formatter;
+}
+
+function getDateKey(timezone: string, now: Date): string {
+  const parts = getFormatter(timezone, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const getPart = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "00";
+  return `${getPart("year")}-${getPart("month")}-${getPart("day")}`;
+}
+
+function getCityTime(
+  timezone: string,
+  now: Date,
+  localTimezone: string,
+  use24Hour: boolean,
+): CityTime {
+  const timeFormatter = getFormatter(timezone, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hour12: true,
+    hour12: !use24Hour,
+    ...(use24Hour ? { hourCycle: "h23" as const } : {}),
   });
 
-  const dateFormatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
+  const dateFormatter = getFormatter(timezone, {
     weekday: "short",
     month: "short",
     day: "numeric",
   });
 
-  const offsetFormatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
+  const offsetFormatter = getFormatter(timezone, {
     timeZoneName: "shortOffset",
   });
 
@@ -110,6 +140,11 @@ function getCityTime(timezone: string, now: Date): CityTime {
   const offset =
     offsetParts.find((part) => part.type === "timeZoneName")?.value ?? "UTC";
 
+  const dayDifference =
+    (Date.parse(`${getDateKey(timezone, now)}T00:00:00Z`) -
+      Date.parse(`${getDateKey(localTimezone, now)}T00:00:00Z`)) /
+    86_400_000;
+
   return {
     hours: getPart("hour"),
     minutes: getPart("minute"),
@@ -117,11 +152,44 @@ function getCityTime(timezone: string, now: Date): CityTime {
     period: getPart("dayPeriod"),
     date: dateFormatter.format(now),
     offset: offset.replace("GMT", "UTC"),
+    dayLabel:
+      dayDifference === -1
+        ? "Yesterday"
+        : dayDifference === 0
+          ? "Today"
+          : dayDifference === 1
+            ? "Tomorrow"
+            : "",
   };
 }
 
-export default function WorldClocks() {
+interface WorldClocksProps {
+  localTimezone: string;
+  use24Hour: boolean;
+  onToggleHourFormat: () => void;
+}
+
+export default function WorldClocks({
+  localTimezone,
+  use24Hour,
+  onToggleHourFormat,
+}: WorldClocksProps) {
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const displayCities = useMemo(() => {
+    if (cities.some((city) => city.timezone === localTimezone)) return cities;
+    const localName =
+      localTimezone.split("/").pop()?.replaceAll("_", " ") || "Local";
+    return [
+      {
+        city: localName,
+        country: "Your device",
+        timezone: localTimezone,
+        flag: "📍",
+        accent: "#a3e635",
+      },
+      ...cities,
+    ];
+  }, [localTimezone]);
 
   useEffect(() => {
     const updateTime = () => {
@@ -131,8 +199,12 @@ export default function WorldClocks() {
     updateTime();
 
     const interval = setInterval(updateTime, 1000);
+    document.addEventListener("visibilitychange", updateTime);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", updateTime);
+    };
   }, []);
 
   return (
@@ -147,27 +219,31 @@ export default function WorldClocks() {
             </span>
 
             <span className="text-[8px] font-bold uppercase tracking-[0.22em] text-lime-400/70 sm:text-[10px] sm:tracking-[0.3em]">
-              Live Network
+              Local Time Zones
             </span>
           </div>
 
           <p className="mt-1 truncate text-[10px] text-white/25 sm:text-xs">
-            Real-time global timezone monitoring
+            World Clock • Times update from your device clock
           </p>
         </div>
 
-        <div className="hidden shrink-0 rounded-full border border-white/[0.06] bg-white/[0.025] px-3 py-1.5 sm:block">
-          <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-white/25">
-            Updated every second
-          </span>
-        </div>
+        <button
+          type="button"
+          onClick={onToggleHourFormat}
+          aria-label={`Switch to ${use24Hour ? "12-hour" : "24-hour"} time`}
+          aria-pressed={use24Hour}
+          className="shrink-0 rounded-full border border-white/[0.08] bg-white/[0.035] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-white/55 transition hover:border-lime-400/25 hover:text-lime-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+        >
+          {use24Hour ? "24-hour" : "12-hour"}
+        </button>
       </div>
 
       {/* World clock cards */}
       <div className="grid grid-cols-1 gap-2.5 min-[420px]:grid-cols-2 sm:gap-3 lg:grid-cols-4">
-        {cities.map((city) => {
+        {displayCities.map((city) => {
           const time = currentTime
-            ? getCityTime(city.timezone, currentTime)
+            ? getCityTime(city.timezone, currentTime, localTimezone, use24Hour)
             : null;
 
           return (
@@ -204,7 +280,7 @@ export default function WorldClocks() {
                   </div>
                 </div>
 
-                {city.city === "Dhaka" && (
+                {city.timezone === localTimezone && (
                   <span className="shrink-0 rounded-full border border-lime-400/15 bg-lime-400/10 px-1.5 py-1 text-[7px] font-bold uppercase tracking-[0.12em] text-lime-300/70 sm:px-2 sm:text-[8px] sm:tracking-[0.15em]">
                     Local
                   </span>
@@ -241,14 +317,19 @@ export default function WorldClocks() {
                   </span>
 
                   <span className="ml-1.5 text-xs font-semibold uppercase text-white/25 sm:text-sm">
-                    {time?.period ?? "--"}
+                    {time?.period ?? (use24Hour ? "" : "--")}
                   </span>
                 </div>
 
                 {/* Date + UTC offset */}
                 <div className="mt-2 flex items-center justify-between gap-2">
-                  <span className="truncate text-[9px] text-white/25 sm:text-[10px]">
-                    {time?.date ?? "Loading..."}
+                  <span className="flex min-w-0 items-center gap-1.5 truncate text-[9px] text-white/25 sm:text-[10px]">
+                    <span>{time?.date ?? "Loading..."}</span>
+                    {time?.dayLabel && (
+                      <span className="shrink-0 text-lime-200/70">
+                        {time.dayLabel}
+                      </span>
+                    )}
                   </span>
 
                   <span

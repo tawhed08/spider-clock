@@ -1,7 +1,13 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
+import {
+  getClockPreferencesSnapshot,
+  getServerClockPreferencesSnapshot,
+  subscribeToClockPreferences,
+  updateClockPreference,
+} from "@/lib/clockPreferences";
 import Alarm from "@/components/Alarm";
 import ClockControls from "@/components/ClockControls";
 import SpiderClock from "@/components/SpiderClock";
@@ -10,8 +16,16 @@ import Timer from "@/components/Timer";
 import WorldClocks from "@/components/WorldClocks";
 
 export default function Home() {
-  const [timezone, setTimezone] = useState("Asia/Dhaka");
+  const { timezone, localTimezone, use24Hour, ready } = useSyncExternalStore(
+    subscribeToClockPreferences,
+    getClockPreferencesSnapshot,
+    getServerClockPreferencesSnapshot,
+  );
   const [theme, setTheme] = useState("spider");
+  const setTimezone = (value: string) =>
+    updateClockPreference("timezone", value);
+  const toggleHourFormat = () =>
+    updateClockPreference("use24Hour", !use24Hour);
 
   const fullscreen = async () => {
     try {
@@ -40,7 +54,7 @@ export default function Home() {
       }`}
     >
       {/* Ambient background */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+      <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute left-1/2 top-[12%] h-[320px] w-[320px] -translate-x-1/2 rounded-full bg-lime-400/[0.035] blur-[100px] sm:top-[18%] sm:h-[520px] sm:w-[520px] sm:blur-[150px]" />
 
         <div className="absolute -left-40 top-[45%] h-[320px] w-[320px] rounded-full bg-emerald-500/[0.025] blur-[100px] sm:-left-48 sm:h-[500px] sm:w-[500px] sm:blur-[140px]" />
@@ -66,13 +80,13 @@ export default function Home() {
             </span>
 
             <span className="truncate text-[8px] font-bold uppercase tracking-[0.18em] text-lime-300/70 sm:text-xs sm:tracking-[0.3em]">
-              Live • Real Time
+              Clock • Selected Timezone
             </span>
           </div>
 
           <div className="relative">
             <p className="mb-2 text-[7px] font-semibold uppercase tracking-[0.28em] text-white/25 sm:mb-3 sm:text-xs sm:tracking-[0.5em]">
-              The Web Is Always Watching
+              Your Time, Wherever You Are
             </p>
 
             <h1 className="text-4xl font-black tracking-[-0.06em] sm:text-6xl lg:text-7xl">
@@ -83,8 +97,8 @@ export default function Home() {
             </h1>
 
             <p className="mx-auto mt-3 max-w-xl px-2 text-[11px] leading-5 text-white/35 sm:mt-5 sm:px-0 sm:text-base sm:leading-7">
-              A cinematic real-time clock experience with animated spider
-              mechanics, global timezones and interactive themes.
+              A real-time Clock and World Clock with an Alarm, Stopwatch, Timer,
+              timezone selection and expressive themes.
             </p>
           </div>
 
@@ -111,6 +125,7 @@ export default function Home() {
           <ClockControls
             timezone={timezone}
             setTimezone={setTimezone}
+            localTimezone={localTimezone}
             theme={theme}
             setTheme={setTheme}
             fullscreen={fullscreen}
@@ -143,7 +158,7 @@ export default function Home() {
               <div className="pointer-events-none absolute -right-16 -top-16 h-32 w-32 rounded-full bg-lime-400/[0.025] blur-3xl transition-opacity duration-500 group-hover:bg-lime-400/[0.06]" />
 
               <div className="relative min-w-0 overflow-hidden rounded-[20px]">
-                <Alarm timezone={timezone} />
+                <Alarm timezone={timezone} timezoneReady={ready} />
               </div>
             </article>
 
@@ -186,7 +201,11 @@ export default function Home() {
           </div>
 
           <div className="glass-panel min-w-0 overflow-hidden rounded-[24px] p-2.5 transition-all duration-500 hover:border-lime-400/10 sm:rounded-3xl sm:p-6">
-            <WorldClocks />
+            <WorldClocks
+              localTimezone={localTimezone}
+              use24Hour={use24Hour}
+              onToggleHourFormat={toggleHourFormat}
+            />
           </div>
         </section>
 
@@ -203,7 +222,7 @@ export default function Home() {
           </div>
 
           <p className="mt-3 px-4 text-[9px] text-white/15 sm:text-xs">
-            Real-time experience • Global timezone • Interactive themes
+            Clock • World Clock • Alarm • Stopwatch • Timer
           </p>
 
           <p className="mt-2 text-[7px] uppercase tracking-[0.22em] text-white/10 sm:text-[9px] sm:tracking-[0.35em]">

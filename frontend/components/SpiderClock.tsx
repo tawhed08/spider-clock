@@ -11,6 +11,7 @@ interface ClockTime {
   hours: number;
   minutes: number;
   seconds: number;
+  rotationSeconds: number;
 }
 
 interface ThemeConfig {
@@ -118,15 +119,15 @@ export default function SpiderClock({
   timezone,
   theme,
 }: SpiderClockProps) {
-  const [time, setTime] = useState<ClockTime>({
-    hours: 0,
-    minutes: 0,
-    seconds: 0,
-  });
+  const [time, setTime] = useState<ClockTime | null>(null);
 
   const currentTheme = themes[theme] ?? themes.spider;
 
   useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout>;
+    let originTimestamp: number | null = null;
+    let originClockSeconds = 0;
+
     const updateTime = () => {
       const now = new Date();
 
@@ -143,36 +144,77 @@ export default function SpiderClock({
       const getPart = (type: string) =>
         Number(parts.find((part) => part.type === type)?.value ?? 0);
 
+      const hours = getPart("hour");
+      const minutes = getPart("minute");
+      const seconds = getPart("second");
+      const timestamp = now.getTime();
+
+      if (originTimestamp === null) {
+        originTimestamp = timestamp;
+        originClockSeconds =
+          hours * 3600 + minutes * 60 + seconds + now.getMilliseconds() / 1000;
+      }
+
       setTime({
-        hours: getPart("hour"),
-        minutes: getPart("minute"),
-        seconds: getPart("second"),
+        hours,
+        minutes,
+        seconds,
+        rotationSeconds:
+          originClockSeconds + (timestamp - originTimestamp) / 1000,
       });
     };
 
+    const scheduleUpdate = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        updateTime();
+        scheduleUpdate();
+      }, 1000 - (Date.now() % 1000));
+    };
+
     updateTime();
+    scheduleUpdate();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        updateTime();
+        scheduleUpdate();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    const interval = setInterval(updateTime, 1000);
-
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(timeout);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [timezone]);
 
-  const hourAngle =
-    ((time.hours % 12) + time.minutes / 60) * 30;
+  const displayTime = time ?? {
+    hours: 0,
+    minutes: 0,
+    seconds: 0,
+    rotationSeconds: 0,
+  };
+  const hourAngle = displayTime.rotationSeconds / 120;
+  const minuteAngle = displayTime.rotationSeconds / 10;
+  const secondAngle = displayTime.rotationSeconds * 6;
 
-  const minuteAngle =
-    (time.minutes + time.seconds / 60) * 6;
-
-  const secondAngle = time.seconds * 6;
-
-  const digitalHours = String(time.hours).padStart(2, "0");
-  const digitalMinutes = String(time.minutes).padStart(2, "0");
-  const digitalSeconds = String(time.seconds).padStart(2, "0");
+  const digitalHours = time ? String(time.hours).padStart(2, "0") : "--";
+  const digitalMinutes = time ? String(time.minutes).padStart(2, "0") : "--";
+  const digitalSeconds = time ? String(time.seconds).padStart(2, "0") : "--";
 
   return (
-    <div className="relative flex min-h-[330px] items-center justify-center overflow-hidden py-6 sm:min-h-[560px] sm:py-10">
+    <div
+      role="img"
+      aria-label={
+        time
+          ? `Current time in ${timezone}: ${digitalHours}:${digitalMinutes}:${digitalSeconds}`
+          : `Clock loading current time for ${timezone}`
+      }
+      className="relative flex min-h-[330px] items-center justify-center overflow-hidden py-6 sm:min-h-[560px] sm:py-10"
+    >
       {/* Ambient glow */}
       <div
+        aria-hidden="true"
         className="absolute h-[270px] w-[270px] rounded-full blur-[70px] transition-all duration-1000 sm:h-[500px] sm:w-[500px] sm:blur-[120px]"
         style={{
           backgroundColor: currentTheme.glow,
@@ -181,6 +223,7 @@ export default function SpiderClock({
 
       {/* Outer energy ring */}
       <div
+        aria-hidden="true"
         className="absolute h-[310px] w-[310px] rounded-full border transition-all duration-1000 sm:h-[530px] sm:w-[530px]"
         style={{
           borderColor: `${currentTheme.border}18`,
@@ -190,6 +233,7 @@ export default function SpiderClock({
 
       {/* Rotating outer ring */}
       <div
+        aria-hidden="true"
         className="absolute h-[330px] w-[330px] rounded-full border border-dashed transition-all duration-1000 sm:h-[555px] sm:w-[555px]"
         style={{
           borderColor: `${currentTheme.border}14`,
@@ -199,6 +243,7 @@ export default function SpiderClock({
 
       {/* Second rotating ring */}
       <div
+        aria-hidden="true"
         className="absolute h-[350px] w-[350px] rounded-full border transition-all duration-1000 sm:h-[580px] sm:w-[580px]"
         style={{
           borderColor: `${currentTheme.border}08`,
@@ -208,6 +253,7 @@ export default function SpiderClock({
 
       {/* Main clock */}
       <div
+        aria-hidden="true"
         className="relative aspect-square w-[min(78vw,310px)] rounded-full border-[5px] shadow-2xl transition-all duration-1000 sm:w-[min(58vw,450px)] sm:border-[8px]"
         style={{
           backgroundColor: currentTheme.face,
@@ -371,8 +417,7 @@ export default function SpiderClock({
               translate(-50%, -100%)
               rotate(${hourAngle}deg)
             `,
-            transition:
-              "transform 900ms cubic-bezier(0.22, 1, 0.36, 1)",
+            transition: time ? "transform 1s linear" : "none",
             boxShadow: `0 0 10px ${currentTheme.glow}`,
           }}
         >
@@ -395,8 +440,7 @@ export default function SpiderClock({
               translate(-50%, -100%)
               rotate(${minuteAngle}deg)
             `,
-            transition:
-              "transform 900ms cubic-bezier(0.22, 1, 0.36, 1)",
+            transition: time ? "transform 1s linear" : "none",
             boxShadow: `0 0 10px ${currentTheme.glow}`,
           }}
         />
@@ -412,8 +456,7 @@ export default function SpiderClock({
               translate(-50%, -100%)
               rotate(${secondAngle}deg)
             `,
-            transition:
-              "transform 850ms cubic-bezier(0.22, 1, 0.36, 1)",
+            transition: time ? "transform 1s linear" : "none",
             boxShadow: `0 0 12px ${currentTheme.secondHand}`,
           }}
         >
